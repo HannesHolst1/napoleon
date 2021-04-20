@@ -89,7 +89,7 @@ def main():
 
     db_tweets = db[config.mongodb['tweets_collection']]
     maintenance_from = datetime.today() - timedelta(hours=request['maintenance_delta'])
-    oldest_tweet_to_maintain = db_tweets.find_one(filter={"request_name": request['name'], "id": { "$lt": request['since_id'] }, "created_at": { "$gte": maintenance_from.isoformat() }},
+    oldest_tweet_to_maintain = db_tweets.find_one(filter={"requests": request['name'], "id": { "$lt": request['since_id'] }, "created_at": { "$gte": maintenance_from.isoformat() }},
                                                   sort=[("id", ASCENDING)]) # ASCENDING comes from pymongo
     
     ## could be that the maintenance-period doesn't contain any tweets
@@ -106,7 +106,7 @@ def main():
         if json_response['meta']['result_count'] > 0:
             tweets_maintained = json_response['meta']['result_count']
 
-            DataProcessor.update_existing_data(json_response, db, config.mongodb)
+            DataProcessor.update_existing_data(json_response, request_info['name'], db, config.mongodb)
 
             while 'next_token' in json_response['meta']:
                 tweets.next_token = json_response['meta']['next_token']
@@ -114,7 +114,7 @@ def main():
                 json_response = tweets.data
                 if json_response['meta']['result_count'] > 0:
                     tweets_maintained = tweets_maintained + json_response['meta']['result_count']
-                    DataProcessor.update_existing_data(json_response, db, config.mongodb)
+                    DataProcessor.update_existing_data(json_response, request_info['name'], db, config.mongodb)
 
     return { "success": True, "tweets_new": tweet_count, "tweets_maintained": tweets_maintained }, 200
 

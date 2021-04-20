@@ -132,7 +132,8 @@ def update_user_statistics(json, request_name, database, db_details):
 
             ## step 3: update total tweet_score
             score = calc_tweet_score(data_element)
-            bulk_request.append(UpdateOne({ "id": data_element['author_id']}, { "$inc": { "tweet_score": score } }))
+            keyvalue = 'tweet_scores.'+request_name
+            bulk_request.append(UpdateOne({ "id": data_element['author_id']}, { "$inc": { keyvalue: score } }))
 
     if bulk_request:
         users.bulk_write(bulk_request)
@@ -142,12 +143,13 @@ def add_request_name(json, request_name):
         Add the name of the request-config to the json-array.
         This is done to be able to query the database better. 
     '''
+    new_entry = [request_name]
     for element in json:
-        element['request_name'] = request_name
+        element['requests'] = new_entry
 
     return
 
-def update_existing_data(tweets, database, db_details):
+def update_existing_data(tweets, request_name, database, db_details):
     '''
         This function will take the payload data to update existing tweets.
         This is useful to update the public metrics (likes, replies etc.) of a tweet.
@@ -169,7 +171,8 @@ def update_existing_data(tweets, database, db_details):
             if existing_tweet['tweet_score'] != new_score:
                 score_diff = new_score - existing_tweet['tweet_score']
                 if 'author_id' in tweet:
-                    user_bulk.append(UpdateOne({ "id": tweet['author_id']}, { "$inc": { "tweet_score": score_diff } }))
+                    keyvalue = 'tweet_scores.'+request_name
+                    user_bulk.append(UpdateOne({ "id": tweet['author_id']}, { "$inc": { keyvalue: score_diff } }))
 
             tweet['tweet_score'] = new_score
 
@@ -194,7 +197,7 @@ def process_new_data(request_info, json, database, db_details):
         users.bulk_write(bulk_request)
 
     if 'data' in json:
-        add_request_name(json['data'], request_info['name'])
+        # add_request_name(json['data'], request_info['name'])
         move_include_into_data(json)
 
         tweets = database[db_details['tweets_collection']]
@@ -204,20 +207,23 @@ def process_new_data(request_info, json, database, db_details):
 
             get_embedded_html(tweet)
 
-            bulk_request.append(ReplaceOne({ "id": tweet['id']}, tweet, upsert=True))
+            bulk_request.append(UpdateOne({ "id": tweet['id']}, { "$set": tweet}, upsert=True))
+            bulk_request.append(UpdateOne({ "id": tweet['id']}, {"$addToSet": { "requests": request_info['name'] } }))
+            #{$addToSet: {"requests":"something new"}
 
         tweets.bulk_write(bulk_request)
 
         update_user_statistics(json, request_info['name'], database, db_details)
 
     if 'media' in json['includes']:
-        add_request_name(json['includes']['media'], request_info['name'])
+        # add_request_name(json['includes']['media'], request_info['name'])
         copy_tweethashtags_into_media(json)
 
         media = database[db_details['media_collection']]
         bulk_request = []
         for media_element in json['includes']['media']:
-            bulk_request.append(ReplaceOne({ "media_key": media_element['media_key']}, media_element, upsert=True))
+            bulk_request.append(UpdateOne({ "media_key": media_element['media_key']}, { "$set": media_element }, upsert=True))
+            bulk_request.append(UpdateOne({ "media_key": media_element['media_key']}, {"$addToSet": { "requests": request_info['name'] } }))
 
         media.bulk_write(bulk_request)
 
