@@ -1,3 +1,11 @@
+# custom
+.vscode
+napoleon_linux
+config.py
+test.py
+manual_updater.py
+zappa_settings.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
