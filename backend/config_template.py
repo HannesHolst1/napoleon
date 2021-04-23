@@ -9,6 +9,6 @@ mongodb = {
 twitter = {
   "bearer": "",
   "tweet_search_uri": "https://api.twitter.com/2/tweets/search/recent?",
-  "oembed": "https://publish.twitter.com/oembed?url=",
+  "oembed": "https://publish.twitter.com/oembed?dnt=true&url=",
   "twitter_url_root": "https://twitter.com/"  
 }

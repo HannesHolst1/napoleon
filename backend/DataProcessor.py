@@ -1,3 +1,4 @@
+from datetime import datetime
 from pymongo import ReplaceOne, UpdateOne
 from backend import config
 import requests
@@ -19,6 +20,19 @@ def calc_tweet_score(tweet):
         tweet_score = (tweet['public_metrics']['like_count'] *2) + (tweet['public_metrics']['reply_count'] * 2) + tweet['public_metrics']['retweet_count'] + tweet['public_metrics']['quote_count']
     return tweet_score
 
+def calc_synergy(tweet):
+    synergy = 0
+    if 'created_at' and 'public_metrics' in tweet:
+        synergy = datetime.now() - datetime.strptime(tweet['created_at'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        synergy = synergy.total_seconds() / 100
+        if tweet['public_metrics']['like_count'] > 0:
+            synergy = synergy - (tweet['public_metrics']['like_count'] / 4)
+
+        if tweet['public_metrics']['reply_count'] > 0:
+            synergy = synergy - (tweet['public_metrics']['reply_count'] * 250)
+
+    return synergy
+ 
 def move_include_into_data(json):
     '''
         The enriched information about media and user is not part of the data-array that contains the Tweet. 
@@ -176,6 +190,8 @@ def update_existing_data(tweets, request_name, database, db_details):
 
             tweet['tweet_score'] = new_score
 
+            tweet['synergy'] = calc_synergy(tweet)
+
             tweet_bulk.append(UpdateOne({ "id": tweet['id']}, { "$set": tweet }, upsert=True))
 
         if tweet_bulk:
@@ -204,6 +220,7 @@ def process_new_data(request_info, json, database, db_details):
         bulk_request = []
         for tweet in json['data']:
             tweet['tweet_score'] = calc_tweet_score(tweet)
+            tweet['synergy'] = calc_synergy(tweet)
 
             get_embedded_html(tweet)
 

@@ -1,10 +1,13 @@
 # custom
 .vscode
 napoleon_linux
+napoleon_venv
 config.py
 test.py
 manual_updater.py
 zappa_settings.json
+install certificates.py
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -26,6 +26,9 @@ def main():
     if not 'name' in request_info:
         return error_response(desc="The request format is wrong."), error_http_code()
 
+    if not 'user' in request_info:
+        return error_response(desc="The request format is wrong."), error_http_code()
+
     client = MongoClient(config.mongodb['uri'])
     db = client[config.mongodb['database']]
     api_requests = db[config.mongodb['request_collection']]
@@ -96,7 +99,7 @@ def main():
     if oldest_tweet_to_maintain:
         ## the tweets object is still warm
         tweets.since_tweet_id = oldest_tweet_to_maintain['id']
-        tweets.until_tweet_id = request['since_id']
+        tweets.until_tweet_id = str(int(request['since_id'])+1)
         tweets.next_token = None
         tweets.getdata()
 
