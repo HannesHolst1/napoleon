@@ -31,6 +31,9 @@ def calc_synergy(tweet):
         if tweet['public_metrics']['reply_count'] > 0:
             synergy = synergy - (tweet['public_metrics']['reply_count'] * 250)
 
+        if (tweet['public_metrics']['reply_count'] + tweet['public_metrics']['quote_count']) > 0:
+            synergy = synergy - ((tweet['public_metrics']['reply_count'] + tweet['public_metrics']['quote_count']) * 100)
+
     return synergy
  
 def move_include_into_data(json):
