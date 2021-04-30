@@ -4,6 +4,8 @@ napoleon_linux
 napoleon_venv
 config.py
 test.py
+test2.py
+test3.py
 manual_updater.py
 zappa_settings.json
 install certificates.py

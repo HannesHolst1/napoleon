@@ -63,6 +63,7 @@ def main():
     tweet_count = 0
 
     if json_response['meta']['result_count'] > 0:
+        print('debug: new tweets - {}'.format(datetime.now()))
         # save "newest_id" to be used in the next request as "since_id"
         newest_id = json_response['meta']['newest_id']
         tweet_count = json_response['meta']['result_count']
@@ -72,6 +73,7 @@ def main():
 
         # if more pages exists, download & handle additional pages
         while 'next_token' in json_response['meta']:
+            print('debug: new tweets - next_token - {}'.format(datetime.now()))
             tweets.next_token = json_response['meta']['next_token']
             tweets.getdata()
             json_response = tweets.data
@@ -96,7 +98,8 @@ def main():
                                                   sort=[("id", ASCENDING)]) # ASCENDING comes from pymongo
     
     ## could be that the maintenance-period doesn't contain any tweets
-    if oldest_tweet_to_maintain:
+    if (oldest_tweet_to_maintain) and (request['FirstRunCompleted']):
+        print('debug: maintain tweets - {}'.format(datetime.now()))
         ## the tweets object is still warm
         tweets.since_tweet_id = oldest_tweet_to_maintain['id']
         tweets.until_tweet_id = str(int(request['since_id'])+1)
@@ -112,6 +115,7 @@ def main():
             DataProcessor.update_existing_data(json_response, request_info['name'], db, config.mongodb)
 
             while 'next_token' in json_response['meta']:
+                print('debug: maintain tweets - next_token - {}'.format(datetime.now()))
                 tweets.next_token = json_response['meta']['next_token']
                 tweets.getdata()
                 json_response = tweets.data
@@ -119,7 +123,10 @@ def main():
                     tweets_maintained = tweets_maintained + json_response['meta']['result_count']
                     DataProcessor.update_existing_data(json_response, request_info['name'], db, config.mongodb)
 
-    return { "success": True, "tweets_new": tweet_count, "tweets_maintained": tweets_maintained }, 200
+    if not request['FirstRunCompleted']:
+        api_requests.find_one_and_update(request_info, { "$set": {"FirstRunCompleted": True}})
+
+    return { "success": True, "tweets_new": tweet_count, "tweets_maintained": tweets_maintained, "ratelimit_info": tweets.ratelimit.toJSON() }, 200
 
 if __name__ == "__main__":
     app.run()

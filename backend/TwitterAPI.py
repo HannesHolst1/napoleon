@@ -2,6 +2,15 @@ import requests
 import urllib.parse
 
 class Tweets:
+    class RateLimit:
+        def __init__(self) -> None:
+            self.EndpointLimit = None
+            self.Remaining = None
+            self.ResetIn = None
+
+        def toJSON(self):
+            return {'EndpointLimit': self.EndpointLimit, 'Remaining': self.Remaining, 'ResetIn': self.ResetIn}
+
     def __init__(self, bearer=None, tweet_search_uri=None, search_query=None, search_parameters=None, since_tweet_id=None, until_tweet_id=None, next_token=None) -> None:
         self.bearer = bearer
         self.tweet_search_uri = tweet_search_uri
@@ -15,6 +24,7 @@ class Tweets:
         self.is_json = False
         self.is_error = False
         self.is_success = False
+        self.ratelimit = self.RateLimit()
 
     def create_headers(self):
         if not self.bearer:
@@ -71,6 +81,15 @@ class Tweets:
                 self.is_json = True
             except:
                 self.data = response.text
+
+        if response.headers['x-rate-limit-limit']:
+            self.ratelimit.EndpointLimit = response.headers['x-rate-limit-limit']
+
+        if response.headers['x-rate-limit-remaining']:
+            self.ratelimit.Remaining = response.headers['x-rate-limit-remaining']
+
+        if response.headers['x-rate-limit-reset']:
+            self.ratelimit.ResetIn = response.headers['x-rate-limit-reset']
 
     def getdata(self):
         self.create_headers()
