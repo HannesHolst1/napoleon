@@ -1,7 +1,7 @@
 from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timedelta
 from flask import Flask, request as rq
-from backend import TwitterAPI, DataProcessor, config
+from backend import AsyncTasks, TwitterAPI, DataProcessor, config
 
 app = Flask(__name__)
 
@@ -41,6 +41,8 @@ def main():
     ## 1st step
     ## download & process all new tweets since last data pull
 
+    api_requests.find_one_and_update(request_info, {"$set": {'active': True}})
+
     tweets = TwitterAPI.Tweets(bearer=config.twitter['bearer'], tweet_search_uri=config.twitter['tweet_search_uri'], 
                                search_query=request['query'], search_parameters=request['parameters'], since_tweet_id=request['since_id'], next_token=None)
     
@@ -63,23 +65,35 @@ def main():
     tweet_count = 0
 
     if json_response['meta']['result_count'] > 0:
-        print('debug: new tweets - {}'.format(datetime.now()))
         # save "newest_id" to be used in the next request as "since_id"
         newest_id = json_response['meta']['newest_id']
         tweet_count = json_response['meta']['result_count']
 
+        if 'next_token' in json_response['meta']:
+            AsyncTasks.download_more_tweets(request_info, 
+                                            api_bearer=config.twitter['bearer'], 
+                                            api_tweet_search_uri=config.twitter['tweet_search_uri'], 
+                                            api_search_query=request['query'], 
+                                            api_search_parameters=request['parameters'], 
+                                            api_since_tweet_id=request['since_id'], 
+                                            api_next_token=json_response['meta']['next_token'],
+                                            api_tweet_count=json_response['meta']['result_count'])
+
         # handle first page received
-        DataProcessor.process_new_data(request_info, json_response, db, config.mongodb)
+        DataProcessor.process_new_data(request_info, json_response, config.mongodb)
 
         # if more pages exists, download & handle additional pages
-        while 'next_token' in json_response['meta']:
-            print('debug: new tweets - next_token - {}'.format(datetime.now()))
-            tweets.next_token = json_response['meta']['next_token']
-            tweets.getdata()
-            json_response = tweets.data
-            if json_response['meta']['result_count'] > 0:
-                tweet_count = tweet_count + json_response['meta']['result_count']
-                DataProcessor.process_new_data(request_info, json_response, db, config.mongodb)
+        # while 'next_token' in json_response['meta']:
+        #     print('debug: new tweets - next_token - {}'.format(datetime.now()))
+        #     tweets.next_token = json_response['meta']['next_token']
+        #     tweets.getdata()
+        #     json_response = tweets.data
+        #     if json_response['meta']['result_count'] > 0:
+        #         tweet_count = tweet_count + json_response['meta']['result_count']
+        #         DataProcessor.process_new_data(request_info, json_response, config.mongodb)
+
+    else:
+        api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
 
     if not newest_id:
         update_db_query = { "$set": {"last_pull": datetime.now()}}
@@ -99,7 +113,6 @@ def main():
     
     ## could be that the maintenance-period doesn't contain any tweets
     if (oldest_tweet_to_maintain) and (request['FirstRunCompleted']):
-        print('debug: maintain tweets - {}'.format(datetime.now()))
         ## the tweets object is still warm
         tweets.since_tweet_id = oldest_tweet_to_maintain['id']
         tweets.until_tweet_id = str(int(request['since_id'])+1)
@@ -115,7 +128,6 @@ def main():
             DataProcessor.update_existing_data(json_response, request_info['name'], db, config.mongodb)
 
             while 'next_token' in json_response['meta']:
-                print('debug: maintain tweets - next_token - {}'.format(datetime.now()))
                 tweets.next_token = json_response['meta']['next_token']
                 tweets.getdata()
                 json_response = tweets.data
