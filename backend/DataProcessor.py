@@ -83,13 +83,17 @@ def add_request_name(json, request_name):
 
     return
 
-def update_existing_data(tweets, request_name, database, db_details):
+def update_existing_data(tweets, request_name, db_details):
     '''
         This function will take the payload data to update existing tweets.
         This is useful to update the public metrics (likes, replies etc.) of a tweet.
         The tweet_score in the user-document will also be updated.
     '''
+
     if 'data' in tweets:
+        client = MongoClient(db_details['uri'])
+        database = client[db_details['database']]
+
         tweets_db = database[db_details['tweets_collection']]
         users = database[db_details['users_collection']]
         tweet_bulk = []

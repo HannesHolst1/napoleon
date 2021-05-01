@@ -1,7 +1,7 @@
-from zappa.asynchronous import task
 from datetime import datetime
-from pymongo import UpdateOne, MongoClient
 from backend import DataProcessor, TwitterAPI, config
+from pymongo import UpdateOne, MongoClient
+from zappa.asynchronous import task
 
 @task
 def update_user_statistics(newest_id, oldest_id, request_name, db_details):
@@ -88,7 +88,10 @@ def update_user_statistics(newest_id, oldest_id, request_name, db_details):
         tweets_collection.bulk_write(tweet_bulk_request)
 
 @task
-def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_search_query, api_search_parameters, api_since_tweet_id, api_next_token, api_tweet_count):
+def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_search_query, api_search_parameters, api_since_tweet_id, api_next_token, api_tweet_count, api_until_tweet_id=None, tweet_action=None):
+    
+    assert tweet_action in ('new', 'update'), 'tweet_action should be "new" or "update".'
+    
     # step one: init new request to twitter-API with "next_token"
     client = MongoClient(config.mongodb['uri'])
     db = client[config.mongodb['database']]
@@ -103,7 +106,7 @@ def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_sea
 
     tweets = TwitterAPI.Tweets(bearer=api_bearer, tweet_search_uri=api_tweet_search_uri, 
                                search_query=api_search_query, search_parameters=api_search_parameters, 
-                               since_tweet_id=api_since_tweet_id, next_token=api_next_token)
+                               since_tweet_id=api_since_tweet_id, next_token=api_next_token, until_tweet_id=api_until_tweet_id)
      
     tweets.getdata()
     
@@ -140,12 +143,22 @@ def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_sea
                             api_search_parameters, 
                             api_since_tweet_id, 
                             api_next_token=json_response['meta']['next_token'],
-                            api_tweet_count=api_tweet_count + json_response['meta']['result_count'])
+                            api_tweet_count=api_tweet_count + json_response['meta']['result_count'], 
+                            api_until_tweet_id=api_until_tweet_id,
+                            tweet_action=tweet_action)
 
     # step three: process_new_data
     if json_response['meta']['result_count'] > 0:
-        DataProcessor.process_new_data(request_info, json_response, config.mongodb)
+
+        if tweet_action == 'new':
+            DataProcessor.process_new_data(request_info, json_response, config.mongodb)
+        elif tweet_action == 'update':
+            DataProcessor.update_existing_data(json_response, request_info['name'], config.mongodb)
 
     # step four: wrap up activities
     if not continue_download_cycle:
-        api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
+
+        if tweet_action == 'new':
+            api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
+        elif tweet_action == 'update':
+            api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
