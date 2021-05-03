@@ -1,3 +1,4 @@
+from typing import final
 from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timedelta
 from flask import Flask, request as rq
@@ -69,6 +70,7 @@ def main():
 
     newest_id = ''
     tweet_count = 0
+    finalize = False
 
     if json_response['meta']['result_count'] > 0:
         newest_id = json_response['meta']['newest_id']
@@ -84,11 +86,16 @@ def main():
                                             api_next_token=json_response['meta']['next_token'],
                                             api_tweet_count=json_response['meta']['result_count'],
                                             tweet_action='new')
+        else:
+            finalize = True
 
         # handle first page received
         DataProcessor.process_new_data(request_info, json_response, config.mongodb)
 
     else:
+        finalize = True
+    
+    if finalize:
         api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
 
     if not newest_id:
@@ -101,6 +108,7 @@ def main():
     ## 2nd step
     ## refresh public metrics of existing tweets
     tweets_maintained = 0
+    finalize = False
 
     db_tweets = db[config.mongodb['tweets_collection']]
     maintenance_from = datetime.today() - timedelta(hours=request['maintenance_delta'])
@@ -140,11 +148,16 @@ def main():
                                                 api_next_token=json_response['meta']['next_token'],
                                                 api_tweet_count=json_response['meta']['result_count'],
                                                 api_until_tweet_id=tweets.until_tweet_id,
-                                                tweet_action='update')            
+                                                tweet_action='update')
+            else:
+                finalize = True
 
             DataProcessor.update_existing_data(json_response, request_info['name'], config.mongodb)
 
         else:
+            finalize = True
+
+        if finalize:
             api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
 
     if not request['FirstRunCompleted']:

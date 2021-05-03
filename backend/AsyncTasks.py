@@ -1,6 +1,6 @@
 from datetime import datetime
 from backend import DataProcessor, TwitterAPI, config
-from pymongo import UpdateOne, MongoClient
+from pymongo import UpdateOne, MongoClient, ASCENDING
 from zappa.asynchronous import task
 
 @task
@@ -162,3 +162,19 @@ def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_sea
             api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
         elif tweet_action == 'update':
             api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
+
+@task
+def refresh_synergy(request_name, db_details):
+    client = MongoClient(db_details['uri'])
+    database = client[db_details['database']]    
+    tweets_collection = database[db_details['tweets_collection']]
+
+    tweets = tweets_collection.find({"requests": request_name, "synergy": {"$ne": 0, "$exists": True}}, sort=[("synergy", ASCENDING)], limit=500)
+
+    bulk_write = []
+    for tweet in tweets:
+        synergy = DataProcessor.calc_synergy(tweet)
+        bulk_write.append(UpdateOne({ "id": tweet['id']}, {"$set": {'synergy': synergy}}))
+
+    if bulk_write:
+        tweets_collection.bulk_write(bulk_write)

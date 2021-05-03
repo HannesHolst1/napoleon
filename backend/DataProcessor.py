@@ -124,6 +124,8 @@ def update_existing_data(tweets, request_name, db_details):
         if user_bulk:
             users.bulk_write(user_bulk)
 
+    AsyncTasks.refresh_synergy(request_name, db_details)
+
 def process_new_data(request_info, json, db_details):
     '''
         This function takes the whole payload received from the Twitter-API and processes it for the dashboard.
