@@ -1,3 +1,4 @@
+from telnetlib import theNULL
 from typing import final
 from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timedelta
@@ -42,6 +43,11 @@ def main():
     ## 1st step
     ## download & process all new tweets since last data pull
 
+    since_tweet_id = request['since_id']
+    twitter_date_thresshold = datetime.today() - timedelta(days=7)
+    if request['last_pull'] < twitter_date_thresshold:
+        since_tweet_id = ''
+
     api_requests.find_one_and_update(request_info, {"$set": 
                                                         {
                                                             'active': True, 
@@ -51,7 +57,7 @@ def main():
                                                     })
 
     tweets = TwitterAPI.Tweets(bearer=config.twitter['bearer'], tweet_search_uri=config.twitter['tweet_search_uri'], 
-                               search_query=request['query'], search_parameters=request['parameters'], since_tweet_id=request['since_id'], next_token=None)
+                               search_query=request['query'], search_parameters=request['parameters'], since_tweet_id=since_tweet_id, next_token=None)
     
     tweets.getdata()
 
@@ -82,7 +88,7 @@ def main():
                                             api_tweet_search_uri=config.twitter['tweet_search_uri'], 
                                             api_search_query=request['query'], 
                                             api_search_parameters=request['parameters'], 
-                                            api_since_tweet_id=request['since_id'], 
+                                            api_since_tweet_id=since_tweet_id, 
                                             api_next_token=json_response['meta']['next_token'],
                                             api_tweet_count=json_response['meta']['result_count'],
                                             tweet_action='new')
@@ -108,60 +114,62 @@ def main():
     ## 2nd step
     ## refresh public metrics of existing tweets
     tweets_maintained = 0
-    finalize = False
+    if request['last_pull'] > twitter_date_thresshold:
+        tweets_maintained = 0
+        finalize = False
 
-    db_tweets = db[config.mongodb['tweets_collection']]
-    maintenance_from = datetime.today() - timedelta(hours=request['maintenance_delta'])
-    oldest_tweet_to_maintain = db_tweets.find_one(filter={"requests": request['name'], "id": { "$lt": request['since_id'] }, "created_at": { "$gte": maintenance_from.isoformat() }},
-                                                  sort=[("id", ASCENDING)]) # ASCENDING comes from pymongo
-    
-    ## could be that the maintenance-period doesn't contain any tweets
-    if (oldest_tweet_to_maintain) and (request['FirstRunCompleted']):
-        api_requests.find_one_and_update(request_info, {"$set": 
-                                                            {
-                                                                'active': True, 
-                                                                'status': 'Update Likes & Replies.',
-                                                                'last_update_pull_started': datetime.now()
-                                                            }
-                                                        })
+        db_tweets = db[config.mongodb['tweets_collection']]
+        maintenance_from = datetime.today() - timedelta(hours=request['maintenance_delta'])
+        oldest_tweet_to_maintain = db_tweets.find_one(filter={"requests": request['name'], "id": { "$lt": request['since_id'] }, "created_at": { "$gte": maintenance_from.isoformat() }},
+                                                    sort=[("id", ASCENDING)]) # ASCENDING comes from pymongo
+        
+        ## could be that the maintenance-period doesn't contain any tweets
+        if (oldest_tweet_to_maintain) and (request['FirstRunCompleted']):
+            api_requests.find_one_and_update(request_info, {"$set": 
+                                                                {
+                                                                    'active': True, 
+                                                                    'status': 'Update Likes & Replies.',
+                                                                    'last_update_pull_started': datetime.now()
+                                                                }
+                                                            })
 
 
-        ## the tweets object is still warm
-        tweets.since_tweet_id = oldest_tweet_to_maintain['id']
-        tweets.until_tweet_id = str(int(request['since_id'])+1)
-        tweets.next_token = None
-        tweets.getdata()
+            ## the tweets object is still warm
+            tweets.since_tweet_id = oldest_tweet_to_maintain['id']
+            tweets.until_tweet_id = str(int(since_tweet_id)+1)
+            tweets.next_token = None
+            tweets.getdata()
 
-        if tweets.is_json:
-            json_response = tweets.data
+            if tweets.is_json:
+                json_response = tweets.data
 
-        if json_response['meta']['result_count'] > 0:
-            tweets_maintained = json_response['meta']['result_count']
+            if json_response['meta']['result_count'] > 0:
+                tweets_maintained = json_response['meta']['result_count']
 
-            if 'next_token' in json_response['meta']:
-                AsyncTasks.download_more_tweets(request_info, 
-                                                api_bearer=config.twitter['bearer'], 
-                                                api_tweet_search_uri=config.twitter['tweet_search_uri'], 
-                                                api_search_query=request['query'], 
-                                                api_search_parameters=request['parameters'], 
-                                                api_since_tweet_id=oldest_tweet_to_maintain['id'], 
-                                                api_next_token=json_response['meta']['next_token'],
-                                                api_tweet_count=json_response['meta']['result_count'],
-                                                api_until_tweet_id=tweets.until_tweet_id,
-                                                tweet_action='update')
+                if 'next_token' in json_response['meta']:
+                    AsyncTasks.download_more_tweets(request_info, 
+                                                    api_bearer=config.twitter['bearer'], 
+                                                    api_tweet_search_uri=config.twitter['tweet_search_uri'], 
+                                                    api_search_query=request['query'], 
+                                                    api_search_parameters=request['parameters'], 
+                                                    api_since_tweet_id=oldest_tweet_to_maintain['id'], 
+                                                    api_next_token=json_response['meta']['next_token'],
+                                                    api_tweet_count=json_response['meta']['result_count'],
+                                                    api_until_tweet_id=tweets.until_tweet_id,
+                                                    tweet_action='update')
+                else:
+                    finalize = True
+
+                DataProcessor.update_existing_data(json_response, request_info['name'], config.mongodb)
+
             else:
                 finalize = True
 
-            DataProcessor.update_existing_data(json_response, request_info['name'], config.mongodb)
+            if finalize:
+                api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
 
-        else:
-            finalize = True
-
-        if finalize:
-            api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
-
-    if not request['FirstRunCompleted']:
-        api_requests.find_one_and_update(request_info, { "$set": {"FirstRunCompleted": True}})
+        if not request['FirstRunCompleted']:
+            api_requests.find_one_and_update(request_info, { "$set": {"FirstRunCompleted": True}})
 
     return { "success": True, "tweets_new": tweet_count, "tweets_maintained": tweets_maintained, "ratelimit_info": tweets.ratelimit.toJSON() }, 200
 
