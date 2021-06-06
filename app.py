@@ -35,10 +35,13 @@ def main():
     db = client[config.mongodb['database']]
     api_requests = db[config.mongodb['request_collection']]
 
-    request = api_requests.find_one(request_info) 
+    request = api_requests.find_one({"name": request_info['name'], "user": request_info['user'] }) 
 
     if not request:
         return error_response(desc="The request {} does not exists.".format(request_info['name'])), error_http_code()
+
+    if 'last_pull' in request:
+        request_info['last_pull'] = request['last_pull'].isoformat()
 
     ## 1st step
     ## download & process all new tweets since last data pull
@@ -48,13 +51,14 @@ def main():
     if request['last_pull'] < twitter_date_thresshold:
         since_tweet_id = ''
 
-    api_requests.find_one_and_update(request_info, {"$set": 
-                                                        {
-                                                            'active': True, 
-                                                            'status': 'Download & process new Tweets.',
-                                                            'last_pull_started': datetime.now()
-                                                        }
-                                                    })
+    api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, 
+                                     {"$set": 
+                                        {
+                                            'active': True, 
+                                            'status': 'Download & process new Tweets.',
+                                            'last_pull_started': datetime.now()
+                                        }
+                                     })
 
     tweets = TwitterAPI.Tweets(bearer=config.twitter['bearer'], tweet_search_uri=config.twitter['tweet_search_uri'], 
                                search_query=request['query'], search_parameters=request['parameters'], since_tweet_id=since_tweet_id, next_token=None)
@@ -102,14 +106,14 @@ def main():
         finalize = True
     
     if finalize:
-        api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
+        api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, {"$set": {'active': False, 'last_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
 
     if not newest_id:
         update_db_query = { "$set": {"last_pull": datetime.now()}}
     else:
         update_db_query = { "$set": {"since_id": newest_id, "last_pull": datetime.now()}}
 
-    api_requests.find_one_and_update(request_info, update_db_query)
+    api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, update_db_query)
 
     ## 2nd step
     ## refresh public metrics of existing tweets
@@ -125,13 +129,14 @@ def main():
         
         ## could be that the maintenance-period doesn't contain any tweets
         if (oldest_tweet_to_maintain) and (request['FirstRunCompleted']):
-            api_requests.find_one_and_update(request_info, {"$set": 
-                                                                {
-                                                                    'active': True, 
-                                                                    'status': 'Update Likes & Replies.',
-                                                                    'last_update_pull_started': datetime.now()
-                                                                }
-                                                            })
+            api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, 
+                                             {"$set": 
+                                                {
+                                                    'active': True, 
+                                                    'status': 'Update Likes & Replies.',
+                                                    'last_update_pull_started': datetime.now()
+                                                }
+                                             })
 
 
             ## the tweets object is still warm
@@ -160,16 +165,16 @@ def main():
                 else:
                     finalize = True
 
-                DataProcessor.update_existing_data(json_response, request_info['name'], config.mongodb)
+                DataProcessor.update_existing_data(json_response, request_info, config.mongodb)
 
             else:
                 finalize = True
 
             if finalize:
-                api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
+                api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
 
         if not request['FirstRunCompleted']:
-            api_requests.find_one_and_update(request_info, { "$set": {"FirstRunCompleted": True}})
+            api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, { "$set": {"FirstRunCompleted": True}})
 
     return { "success": True, "tweets_new": tweet_count, "tweets_maintained": tweets_maintained, "ratelimit_info": tweets.ratelimit.toJSON() }, 200
 

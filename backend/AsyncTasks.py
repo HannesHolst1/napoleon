@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from backend import DataProcessor, TwitterAPI, config
 from pymongo import UpdateOne, MongoClient, ASCENDING
 from zappa.asynchronous import task
@@ -97,7 +97,7 @@ def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_sea
     db = client[config.mongodb['database']]
     api_requests = db[config.mongodb['request_collection']]
 
-    current_request = api_requests.find_one(request_info)
+    current_request = api_requests.find_one({"name": request_info['name'], "user": request_info['user'] })
     # below is an emergency kill switch in case the recursive Lambda-invocations do get out of control
     if 'kill_download' in current_request:
         if current_request['kill_download']:
@@ -153,23 +153,30 @@ def download_more_tweets(request_info, api_bearer, api_tweet_search_uri, api_sea
         if tweet_action == 'new':
             DataProcessor.process_new_data(request_info, json_response, config.mongodb)
         elif tweet_action == 'update':
-            DataProcessor.update_existing_data(json_response, request_info['name'], config.mongodb)
+            DataProcessor.update_existing_data(json_response, request_info, config.mongodb)
 
     # step four: wrap up activities
     if not continue_download_cycle:
 
         if tweet_action == 'new':
-            api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
+            api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, {"$set": {'active': False, 'last_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_pull_finished': datetime.now()}})
         elif tweet_action == 'update':
-            api_requests.find_one_and_update(request_info, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
+            api_requests.find_one_and_update({"name": request_info['name'], "user": request_info['user'] }, {"$set": {'active': False, 'last_update_pull_tweets_downloaded': api_tweet_count + json_response['meta']['result_count'], 'last_update_pull_finished': datetime.now()}})
 
 @task
-def refresh_synergy(request_name, db_details):
+def refresh_synergy(request_info, db_details):
     client = MongoClient(db_details['uri'])
     database = client[db_details['database']]    
     tweets_collection = database[db_details['tweets_collection']]
 
-    tweets = tweets_collection.find({"requests": request_name, "synergy": {"$ne": 0, "$exists": True}}, sort=[("synergy", ASCENDING)], limit=500)
+    if 'last_pull' in request_info:
+        date_query = datetime.strptime(request_info['last_pull'], '%Y-%m-%dT%H:%M:%S.%f') - timedelta(days=7)
+    else:
+        date_query = datetime.today().date() - timedelta(days=10)
+
+    db_query = {"requests": request_info['name'], "synergy": {"$ne": 0, "$exists": True}, "created_at": { "$gte": date_query.isoformat() }}
+
+    tweets = tweets_collection.find(db_query, sort=[("synergy", ASCENDING)])
 
     bulk_write = []
     for tweet in tweets:

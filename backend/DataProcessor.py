@@ -83,7 +83,7 @@ def add_request_name(json, request_name):
 
     return
 
-def update_existing_data(tweets, request_name, db_details):
+def update_existing_data(tweets, request_info, db_details):
     '''
         This function will take the payload data to update existing tweets.
         This is useful to update the public metrics (likes, replies etc.) of a tweet.
@@ -109,7 +109,7 @@ def update_existing_data(tweets, request_name, db_details):
             if existing_tweet['tweet_score'] != new_score:
                 score_diff = new_score - existing_tweet['tweet_score']
                 if 'author_id' in tweet:
-                    keyvalue = 'tweet_scores.'+request_name
+                    keyvalue = 'tweet_scores.'+request_info['name']
                     user_bulk.append(UpdateOne({ "id": tweet['author_id']}, { "$inc": { keyvalue: score_diff } }))
 
             tweet['tweet_score'] = new_score
@@ -124,7 +124,7 @@ def update_existing_data(tweets, request_name, db_details):
         if user_bulk:
             users.bulk_write(user_bulk)
 
-    AsyncTasks.refresh_synergy(request_name, db_details)
+    AsyncTasks.refresh_synergy(request_info, db_details)
 
 def process_new_data(request_info, json, db_details):
     '''
